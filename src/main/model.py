@@ -16,7 +16,7 @@ class Model(nn.Module):
         super().__init__()
 
         # import pre-trained models for text encoder and image encoder
-        self.img_encoder = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k", attn_implementation="sdpa")
+        self.img_encoder = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k", attn_implementation="sdpa") # sdpa a variant of flash attention
         self.txt_encoder = BertModel.from_pretrained("google-bert/bert-base-uncased", attn_implementation="sdpa")
 
         # disable KV cache for memory saving
@@ -32,9 +32,9 @@ class Model(nn.Module):
         self.W_t = nn.Parameter(torch.empty(d_t, d_e)) 
         self.t = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))
         
-        # xavier initialization parameters -> sample weights from a uniform distribution ~ Unif{-sqrt(6/ (fan_in + fan_out)), sqrt(6 / (fan_in + fan_out))}
-        torch.nn.init.xavier_uniform_(self.W_i)
-        torch.nn.init.xavier_uniform_(self.W_t)
+        # he initialization (kaiming) parameters -> sample weights from a uniform distribution ~ Unif(-sqrt(6/ fan_in), sqrt(6 / fan_in))
+        torch.nn.init.kaiming_uniform_(self.W_i)
+        torch.nn.init.kaiming_uniform_(self.W_t)
 
     def forward(self, I_batch, T_batch):
         # I_batch shape: [B, C, H, W]
