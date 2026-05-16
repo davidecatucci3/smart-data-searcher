@@ -138,8 +138,6 @@ def train():
     # track model gradients
     wandb.watch(model, log_freq=100)
 
-    optimizer.zero_grad(set_to_none=True) # set alla gradients to zero
-
     time_start = time.time() # track avg step time
 
     for epoch in range(epochs):
@@ -161,15 +159,15 @@ def train():
 
                 # calculate loss
                 labels = torch.arange(logits.size(0), device=device)
-                loss_t = F.cross_entropy(logits, labels)   # image searching for text
-                loss_i = F.cross_entropy(logits.T, labels) # text searching for image
+                loss_it = F.cross_entropy(logits, labels)   # image searching for text
+                loss_ti = F.cross_entropy(logits.T, labels) # text searching for image
 
                 # alpha pay more attention to loss_i so T->I because I need low loss on that
-                loss = ((1 - alpha)*loss_t + (alpha)*loss_i) / accumulation_steps
+                loss = ((1 - alpha)*loss_it + (alpha)*loss_ti) / accumulation_steps
 
             train_loss += loss.item() * accumulation_steps
-            train_loss_it += loss_t.item()
-            train_loss_ti += loss_i.item()
+            train_loss_it += loss_it.item()
+            train_loss_ti += loss_ti.item()
 
             # avoid underflow by scaling up loss so gradients don't become to small and after does backpropagation
             scaler.scale(loss).backward()
@@ -215,8 +213,8 @@ def train():
 
                 # info training
                 curr_train_loss = (train_loss - prev_train_loss) / accumulation_steps
-                curr_train_loss_ti = (train_loss_ti - prev_train_loss_ti) / accumulation_steps
                 curr_train_loss_it = (train_loss_it - prev_train_loss_it) / accumulation_steps
+                curr_train_loss_ti = (train_loss_ti - prev_train_loss_ti) / accumulation_steps
 
                 prev_train_loss = train_loss
                 prev_train_loss_ti = train_loss_ti
@@ -226,11 +224,6 @@ def train():
                 dt_avg_step = time.time() - time_start
 
                 print(f" Step {step}/{total_training_steps} | train loss: {curr_train_loss:.4f} | train loss T->I: {curr_train_loss_ti:.4f} | train loss I->T: {curr_train_loss_it:.4f} | dt step: {dt_avg_step:.4f}s | dt batch: {dt_avg_batch:.4f}s | lr: {optimizer.param_groups[0]['lr']:.8f}")
-
-                step += 1
-
-                if step % int(total_training_steps * 0.25) == 0: # each 25% of tot steps save a checkpoint of current model parameters
-                    save_checkpoint(model, optimizer, scheduler, scaler, epoch, step)
 
                 time_start = time.time()
 
@@ -247,9 +240,16 @@ def train():
                     "train/temp_scaled": torch.exp(model.t).clamp(max=100).item(),
                     "step": step
                 })
+              
+                step += 1
 
             # -- TEST PHASE --
+            if step % int(total_training_steps * 0.05) == 0: # each 5% test the model on unseen data
+                pass
 
+            # each 25% of tot steps save a checkpoint of current model parameters
+            if step % int(total_training_steps * 0.25) == 0:
+                    save_checkpoint(model, optimizer, scheduler, scaler, epoch, step)
 
 if __name__ == "__main__":
     train()
