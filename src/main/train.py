@@ -4,14 +4,13 @@ import torch
 import time
 import os
 
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
 from transformers import get_cosine_schedule_with_warmup
 from import_data import train_loader, test_loader
 from hyperparameters import hyperparameters
 from torch.amp import autocast, GradScaler
 from model import Model
-
-# prevents memory fragmentation
-os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 # set TF32 instead of FP32 (faster GPU matmul using TF32)
 torch.set_float32_matmul_precision('high')
@@ -19,12 +18,10 @@ torch.set_float32_matmul_precision('high')
 # set device
 if torch.cuda.is_available():
     device = torch.device("cuda")
-elif torch.backends.mps.is_available():
-    device = torch.device("mps")
-else:
-    device = torch.device("cpu")
 
-print(f"Using device: {device}")
+    print(f"Using device: {device}")
+else:
+    print('No GPU detected!') # THIS CODE WORKS ONLY IF GPU IS AVAILABLE!
 
 # hyperparameters
 lr = hyperparameters['lr']
@@ -43,23 +40,24 @@ wandb.init(
     entity="davidecatucci3-sapienza-universit-di-roma",
     project="smart data searcher",
     config={
-        "learning_rate": lr,
-        "batch_size": batch_size,
-        "d_i": d_i,
-        "d_t": d_t,
-        "d_e": d_e,
-        "alpha": alpha,
-        "epochs": epochs,
-        "max test batches": max_test_batches,
-        "alpha": alpha,
-        "top_k": top_k,
+        "learning_rate":      lr,
+        "batch_size":         batch_size,
+        "d_i":                d_i,
+        "d_t":                d_t,
+        "d_e":                d_e,
+        "alpha":              alpha,
+        "epochs":             epochs,
+        "max_test_batches":   max_test_batches,
+        "top_k":              top_k,
         "accumulation_steps": accumulation_steps,
-        "dataset": "-",
-        "architecture": "CLIP"
+        "dataset":            "-",
+        "architecture":       "CLIP",
     }
 )
 
-wandb.define_metric("step") # define x-axis metric
+wandb.define_metric("step") # define x-axis metric                
+wandb.define_metric("train/*", step_metric="step")
+wandb.define_metric("test/*",  step_metric="step")
 
 # set model
 model = Model().to(device)  # move parameters to device (GPU)
@@ -105,14 +103,13 @@ scheduler = get_cosine_schedule_with_warmup( # learning rate increase linearly a
 # checkpoint save function, save weights and info of model and training stage
 def save_checkpoint(model, optimizer, scheduler, scaler, epoch, step, path="checkpoint.pth"):
     checkpoint = {
-        'epoch': epoch,
-        'step': step,
-        'model_state_dict': model.state_dict(),
+        'epoch':                epoch,
+        'step':                 step,
+        'model_state_dict':     model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
-        'scaler_state_dict': scaler.state_dict(),
+        'scaler_state_dict':    scaler.state_dict(),
     }
-
     torch.save(checkpoint, path)
 
     print(f"--- Checkpoint saved at step {step} ---")
@@ -140,6 +137,8 @@ def train():
 
     time_start = time.time() # track avg step time
 
+    optimizer.zero_grad(set_to_none=True) # set gradient to zero at the starta are not 0
+
     for epoch in range(epochs):
         for i, batch in enumerate(train_loader): 
             model.train()
@@ -149,13 +148,13 @@ def train():
             # I_batch = {"pixel_values": tensor([B, 3, 224, 224])}         
             # T_batch = {"input_ids": ..., "attention_mask": ..., ...}     
             I_batch, T_batch, _, _ = batch 
-
+            
             # put input tensors to device GPU
             I_batch = {k: v.to(device, non_blocking=True) for k, v in I_batch.items()}
             T_batch = {k: v.to(device, non_blocking=True) for k, v in T_batch.items()}
 
             with autocast(device_type='cuda', dtype=torch.float16): # use float16 instead of float32
-                logits = model(I_batch, T_batch) # shape: [B, B]
+                logits = model(I_batch, T_batch) # shape: [B, B], output model
 
                 # calculate loss
                 labels = torch.arange(logits.size(0), device=device)
@@ -163,14 +162,14 @@ def train():
                 loss_ti = F.cross_entropy(logits.T, labels) # text searching for image
 
                 # alpha pay more attention to loss_i so T->I because I need low loss on that
-                loss = ((1 - alpha)*loss_it + (alpha)*loss_ti) / accumulation_steps
+                local_train_loss = ((1 - alpha)*loss_it + (alpha)*loss_ti) / accumulation_steps
 
-            train_loss += loss.item() * accumulation_steps
+            train_loss += local_train_loss.item() * accumulation_steps
             train_loss_it += loss_it.item()
             train_loss_ti += loss_ti.item()
 
             # avoid underflow by scaling up loss so gradients don't become to small and after does backpropagation
-            scaler.scale(loss).backward()
+            scaler.scale(local_train_loss).backward()
 
             time_end2 = time.time()
 
@@ -201,9 +200,9 @@ def train():
                     wandb.log({
                         "train/pos_similarity": ema_pos_sim,
                         "train/neg_similarity": ema_neg_sim,
-                        "train/logit_gap": pos_sim - neg_sim,
-                        "train/grad_norm": total_norm,
-                        "step": step
+                        "train/logit_gap":      pos_sim - neg_sim,
+                        "train/grad_norm":      total_norm,
+                        "step":                 step
                     })
                 
                 scaler.step(optimizer)                # update parameters
@@ -223,8 +222,16 @@ def train():
                 dt_avg_batch = dt_batch / (i + 1)
                 dt_avg_step = time.time() - time_start
 
-                print(f" Step {step}/{total_training_steps} | train loss: {curr_train_loss:.4f} | train loss T->I: {curr_train_loss_ti:.4f} | train loss I->T: {curr_train_loss_it:.4f} | dt step: {dt_avg_step:.4f}s | dt batch: {dt_avg_batch:.4f}s | lr: {optimizer.param_groups[0]['lr']:.8f}")
-
+                print(
+                    f"step {step}/{total_training_steps} | "
+                    f"train loss: {curr_train_loss:.4f} | "
+                    f"train loss T->I: {curr_train_loss_ti:.4f} | "
+                    f"train loss I->T: {curr_train_loss_it:.4f} | "
+                    f"dt step: {dt_avg_step:.4f}s | "
+                    f"dt batch: {dt_avg_batch:.4f}s | "
+                    f"lr: {optimizer.param_groups[0]['lr']:.8f}"
+                )
+                
                 time_start = time.time()
 
                 # log training metrics
@@ -240,16 +247,126 @@ def train():
                     "train/temp_scaled": torch.exp(model.t).clamp(max=100).item(),
                     "step": step
                 })
-              
-                step += 1
 
-            # -- TEST PHASE --
-            if step % int(total_training_steps * 0.05) == 0: # each 5% test the model on unseen data
-                pass
-
-            # each 25% of tot steps save a checkpoint of current model parameters
-            if step % int(total_training_steps * 0.25) == 0:
+                # each 25% of tot steps save a checkpoint of current model parameters
+                if step % int(total_training_steps * 0.25) == 0:
                     save_checkpoint(model, optimizer, scheduler, scaler, epoch, step)
+                
+                # -- TEST PHASE --
+                if step % int(total_training_steps * 0.05) == 0: # each 5% of the tot steps test the model on unseen data
+                    model.eval()
+                        
+                    test_loss = 0.0
+                    test_loss_ti = 0.0
+                    test_loss_it = 0.0
+
+                    steps_test = 0
+
+                    correct_predictions = 0.0
+                    total_samples = 0
+
+                    dt_avg_batch_test = 0.0      
+
+                    # define WandB table structure to visualize at each test if predictions are correct by visually checking 
+                    columns = ["query_text", "ground_truth_image", "top_1_prediction", "top_2_prediction", "top_3_prediction", "top_4_prediction", "top_5_prediction"]
+                    test_table = wandb.Table(columns=columns)   
+
+                    with torch.no_grad():     
+                        time_x = time.time() # track avg step time
+
+                        for j, batch in enumerate(test_loader):
+                            if j == max_test_batches: # 5 * 2816 so test on 15360 pairs
+                                break
+
+                            time_start3 = time.time() # track avg batch test time
+                        
+                            I_batch, T_batch, images, texts = batch
+
+                            I_batch = {k: v.to(device, non_blocking=True) for k, v in I_batch.items()}
+                            T_batch = {k: v.to(device, non_blocking=True) for k, v in T_batch.items()}
+
+                            with autocast(device_type='cuda', dtype=torch.float16): # use FP16/BF16 instead of FP32
+                                logits = model(I_batch, T_batch) 
+
+                                # visualize prediction model in WandB to see if it's predicting correctly 
+                                if j == 0:                     
+                                    # get the top-5 indices for each image in the batch
+                                    logits_ti = logits.T
+                                    _, topk_indices = logits_ti.topk(top_k, dim=1) 
+                                    
+                                    for idx in range(min(10, len(texts))):
+                                        query_text = texts[idx]
+                                        gt_image = wandb.Image(images[idx])
+                                            
+                                        # get the 5 images the model liked most for this text
+                                        p1 = wandb.Image(images[topk_indices[idx][0].item()])
+                                        p2 = wandb.Image(images[topk_indices[idx][1].item()])
+                                        p3 = wandb.Image(images[topk_indices[idx][2].item()])
+                                        p4 = wandb.Image(images[topk_indices[idx][3].item()])
+                                        p5 = wandb.Image(images[topk_indices[idx][4].item()])
+                                            
+                                        # add the row to the table
+                                        test_table.add_data(query_text, gt_image, p1, p2, p3, p4, p5)
+                                        
+                                    wandb.log({"eval/text_to_image_search": test_table, "global_step": step})
+                                
+                                # dynamic labels based on the actual batch size
+                                labels = torch.arange(logits.size(0), device=device)
+
+                                # calculate loss
+                                loss_it = F.cross_entropy(logits, labels)
+                                loss_ti = F.cross_entropy(logits.T, labels)
+                                local_test_loss = (1 - alpha)*loss_it + (alpha)*loss_ti
+
+                                # calculate accuracy, we look at logits col because columns of logits are texts, rows are images
+                                logits_ti = logits.T
+                                _, topk_indices = logits_ti.topk(top_k, dim=1) # shape: [B, top_k]
+
+                                correct_in_topk = topk_indices.eq(labels.view(-1, 1)).any(dim=1)
+
+                                correct_predictions += correct_in_topk.sum().item()
+                                total_samples += labels.size(0)
+                            
+                            test_loss += local_test_loss.item()
+                            test_loss_it += loss_it.item()
+                            test_loss_ti += loss_ti.item()
+                            steps_test += 1
+
+                            dt_avg_batch_test += time.time() - time_start3
+                        
+                        dt_step_test = time.time() - time_x
+
+                        # print accuracy and test loss
+                        test_loss = test_loss / steps_test
+                        test_loss_it = test_loss_it / steps_test
+                        test_loss_ti = test_loss_ti / steps_test
+
+                        accuracy = (correct_predictions / total_samples) * 100
+
+                        print(
+                            f"step {step}/{total_training_steps} | "
+                            f"test loss: {test_loss:.4f} | "
+                            f"test loss T->I: {test_loss_ti:.4f} | "
+                            f"test loss I->T: {test_loss_it:.4f} | "
+                            f"accuracy: {accuracy:.2f}%"
+                        )
+
+                        # log test metrics
+                        wandb.log({
+                            "test/loss":     test_loss,
+                            "test/loss_it":  test_loss_it,
+                            "test/loss_ti":  test_loss_ti,
+                            "test/accuracy": accuracy,
+                            "step":   step
+                        })
+
+                        wandb.log({
+                            "test/dt_step":  dt_step_test,
+                            "test/dt_batch": dt_avg_batch_test / max_test_batches,
+                            "step":   step
+                        })
+
+                step += 1
 
 if __name__ == "__main__":
     train()

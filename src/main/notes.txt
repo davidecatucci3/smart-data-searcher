@@ -1,0 +1,3 @@
+- try differnet weight init
+- loss calculation review
+- 
