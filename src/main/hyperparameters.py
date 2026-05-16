@@ -6,7 +6,7 @@ hyperparameters = {
     'max_test_batches': 5,
     'lr': 1e-4,
     'epochs': 8,
-    'accumulation_steps': 8,
+    'accumulation_steps': 8, # each how many steps weights are updated
     'max_length_txt': 128, # max length raw text for text encoder
     'alpha': 0.8,
     'top_k': 5  # number of images selected from search (the top 5)

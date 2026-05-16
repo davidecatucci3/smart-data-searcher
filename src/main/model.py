@@ -16,12 +16,8 @@ class Model(nn.Module):
         super().__init__()
 
         # import pre-trained models for text encoder and image encoder
-        self.img_encoder = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k", attn_implementation="sdpa") # sdpa a variant of flash attention
+        self.img_encoder = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k", attn_implementation="sdpa") # sdpa is a variant of flash attention
         self.txt_encoder = BertModel.from_pretrained("google-bert/bert-base-uncased", attn_implementation="sdpa")
-
-        # disable KV cache for memory saving
-        self.img_encoder.config.use_cache = False
-        self.txt_encoder.config.use_cache = False
 
         # save memory by not storing all gradients but this is slower due to recalculation after (USE ONLY IF YOU DON'T HAVE ENOUGH MEMORY)
         #self.img_encoder.gradient_checkpointing_enable()
@@ -43,14 +39,14 @@ class Model(nn.Module):
         I_f = self.img_encoder(**I_batch).last_hidden_state # shape: [B, C*H*W, d_i]
         T_f = self.txt_encoder(**T_batch).last_hidden_state # shape: [B, max_length_txt, d_t]
 
-        I_f = I_f[:, 0, :] # shape: [B, d_i]
+        I_f = I_f[:, 0, :] # shape: [B, d_i], 0 is the [CLS] token that capture the global meaning of the whole sequence
         T_f = T_f[:, 0, :] # shape: [B, d_t]
 
         I_e = F.normalize(I_f @ self.W_i, p=2, dim=1) # shape: [B, d_e] -> normalize (makes it norm 1): rowi /= ||rowi||2
         T_e = F.normalize(T_f @ self.W_t, p=2, dim=1) # shape: [B, d_e] -> normalize (makes it norm 1): rowi /= ||rowi||2
 
-        t_scale = torch.exp(self.t).clamp(max=100)
+        t_scale = torch.exp(self.t).clamp(max=100) # scalar that that controls similarity sharpness globally, clamp prevent t to explode
 
-        logits = I_e @ T_e.T * t_scale # shape: [B, B] -> cosine similarity: just I_e @ T_e.T not divided by their norms because norms are 1
+        logits = I_e @ T_e.T * t_scale # shape: [B, B], similarity matrix: just I_e @ T_e.T not divided by their norms because norms are 1
 
         return logits
