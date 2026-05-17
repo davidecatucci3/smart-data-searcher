@@ -11,11 +11,11 @@ batch_size = hyperparameters['batch_size']
 max_length_txt = hyperparameters['max_length_txt']
 
 # import dataset
-dataset = load_dataset("bitmind/MS-COCO", streaming=True)
+dataset = load_dataset("bitmind/MS-COCO", streaming=True) # we don't download dataset on local but we use streaming to iterate on the dataset on the fly without download dataset
 
 # import pre-trained models
-vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
-bert_tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")
+vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k") # image encoder
+bert_tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")        # text encoder
  
 def collate_fn(batch):
     images = [] # list of images in PIL objects form
