@@ -49,7 +49,7 @@ def collate_fn(batch):
 
     return img_inputs, txt_inputs, images, texts
 
-train_data = dataset['train'].shuffle(seed=42, buffer_size=10000)
+train_data = dataset['train'].shuffle(seed=42, buffer_size=10000) # shuffle to prevent model to learn sequence of data (put in memory only 10.000 and sample randomly from there, when one batch is taken out another is take in)
 test_data = dataset['test'].shuffle(seed=42, buffer_size=10000).filter(lambda _, i: i % 5 == 0, with_indices=True) # in test data each 5 sample the image is the same and change only the text, so now i am taking only 1 image each 5 for testing 
 
 train_loader = DataLoader(train_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
