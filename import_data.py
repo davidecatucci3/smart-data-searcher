@@ -23,13 +23,13 @@ def collate_fn(batch):
     for item in batch:
         img_data = item['image']
 
-        # if streaming returns a dict instead of a PIL object the data arrives as bytes and not as PIL object so i need to convert it to PIL object
+        # due to streaming it can return both the PIL object correct or sometimes a dict with inside raw bytes or path of image
         if isinstance(img_data, dict):
-            if 'bytes' in img_data and img_data['bytes'] is not None: # if raw bytes
+            if 'bytes' in img_data and img_data['bytes'] is not None: # if dict contains raw bytes
                 img = Image.open(io.BytesIO(img_data['bytes']))
-            elif 'path' in img_data: # if there is path for image
+            elif 'path' in img_data: # if dict contains path
                 img = Image.open(img_data['path'])
-            else: # if error 
+            else: # else
                 # fallback for unexpected dict structures
                 img = Image.new('RGB', (224, 224), color='black')
         else:
