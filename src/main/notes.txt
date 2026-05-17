@@ -1,4 +1,2 @@
 - try differnet weight init
 - pre trained models
-- importing data
-- shuffle dataset loop
