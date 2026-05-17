@@ -1,3 +1,6 @@
 - try differnet weight init
 - loss calculation review
-- 
+- pre trained models
+- importing data
+- len train data
+- shuffle dataset loop

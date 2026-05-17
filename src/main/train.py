@@ -50,7 +50,7 @@ wandb.init(
         "max_test_batches":   max_test_batches,
         "top_k":              top_k,
         "accumulation_steps": accumulation_steps,
-        "dataset":            "-",
+        "dataset":            "bitmind/MS-COCO",
         "architecture":       "CLIP",
     }
 )
@@ -87,7 +87,7 @@ optimizer = torch.optim.AdamW(
 )
 
 # learning rate scheduler
-rows_train_data = 0
+rows_train_data = 590000
 steps_per_epoch = rows_train_data // (batch_size * accumulation_steps) # how many times weights are updated per epoch
 
 total_training_steps = steps_per_epoch * epochs
