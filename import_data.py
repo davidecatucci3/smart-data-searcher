@@ -38,6 +38,7 @@ def collate_fn(batch):
         # convert all images to RGB (fixes grayscale/RGBA issues)
         images.append(img.convert("RGB"))
 
+    # list of texts 
     texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch] # list of texts not tokens
 
     # process images so return a list of images in tensor / array form
