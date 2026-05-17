@@ -87,7 +87,7 @@ optimizer = torch.optim.AdamW(
 )
 
 # learning rate scheduler
-rows_train_data = 590000
+rows_train_data = 566800
 steps_per_epoch = rows_train_data // (batch_size * accumulation_steps) # how many times weights are updated per epoch
 
 total_training_steps = steps_per_epoch * epochs
@@ -162,9 +162,9 @@ def train():
                 loss_ti = F.cross_entropy(logits.T, labels) # text searching for image
 
                 # alpha pay more attention to loss_i so T->I because I need low loss on that
-                local_train_loss = ((1 - alpha)*loss_it + (alpha)*loss_ti) / accumulation_steps
+                local_train_loss = ((1 - alpha)*loss_it + (alpha)*loss_ti)
 
-            train_loss += local_train_loss.item() * accumulation_steps
+            train_loss += local_train_loss.item() 
             train_loss_it += loss_it.item()
             train_loss_ti += loss_ti.item()
 
