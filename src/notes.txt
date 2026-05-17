@@ -1,0 +1,2 @@
+- try differnet weight init
+- pre trained models, LIT not sense like that and why choose this?
