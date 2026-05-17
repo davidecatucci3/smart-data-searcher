@@ -23,13 +23,13 @@ def collate_fn(batch):
     for item in batch:
         img_data = item['image']
 
-        # if streaming returns a dict instead of a PIL object the data arrives as bytes and bot as PIL object so i need to convert it to PIL object
+        # if streaming returns a dict instead of a PIL object the data arrives as bytes and not as PIL object so i need to convert it to PIL object
         if isinstance(img_data, dict):
-            if 'bytes' in img_data and img_data['bytes'] is not None:
+            if 'bytes' in img_data and img_data['bytes'] is not None: # if raw bytes
                 img = Image.open(io.BytesIO(img_data['bytes']))
-            elif 'path' in img_data:
+            elif 'path' in img_data: # if there is path for image
                 img = Image.open(img_data['path'])
-            else:
+            else: # if error 
                 # fallback for unexpected dict structures
                 img = Image.new('RGB', (224, 224), color='black')
         else:
@@ -38,13 +38,13 @@ def collate_fn(batch):
         # convert all images to RGB (fixes grayscale/RGBA issues)
         images.append(img.convert("RGB"))
 
-    # list of texts 
-    texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch] # list of texts not tokens
+    # list of texts not tokens
+    texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch] 
 
-    # process images so return a list of images in tensor / array form
+    # process images so return a list of images in tensor / array form -> {"pixel_values": tensor([B, 3, 224, 224])}        
     img_inputs = vit_processor(images=images, return_tensors="pt")
 
-    # process text so return list texts converted in tokens 
+    # process text so return list texts converted in tokens -> {"input_ids": ..., "attention_mask": ..., ...}     
     txt_inputs = bert_tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length_txt)
 
     return img_inputs, txt_inputs, images, texts
