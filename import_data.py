@@ -8,14 +8,15 @@ from PIL import Image
 
 # hyperparameters
 batch_size = hyperparameters['batch_size']
-max_length_txt = 128
+max_length_txt = hyperparameters['max_length_txt']
 
-# import dataset and split it in train and test
+# import dataset
 dataset = load_dataset("bitmind/MS-COCO", streaming=True)
 
+# import pre-trained models
 vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k")
 bert_tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")
-
+ 
 def collate_fn(batch):
     images = [] # list of images in PIL objects form
 
@@ -50,5 +51,5 @@ def collate_fn(batch):
 train_data = dataset['train'].shuffle(seed=42, buffer_size=10000)
 test_data = dataset['test'].shuffle(seed=42, buffer_size=10000).filter(lambda _, i: i % 5 == 0, with_indices=True) # in test data each 5 sample the image is the same and change only the text, so now i am taking only 1 image each 5 for testing 
 
-train_loader = DataLoader(train_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=16, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
-test_loader = DataLoader(test_data, batch_size=batch_size * 12, collate_fn=collate_fn, num_workers=16, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
+train_loader = DataLoader(train_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=batch_size * 12, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
