@@ -13,10 +13,10 @@ from transformers import BertTokenizer
 from import_data import test_loader
 from model import Model
 
-# set TF32 instead of FP32
+# set TF32 instead of FP32 (faster GPU matmul using TF32)
 torch.set_float32_matmul_precision('high')
 
-# set device
+# set device (RECOMENDED INFERENCE USING GPU BUT ALSO CPU AND MPS USABLE)
 if torch.cuda.is_available():
     device = torch.device("cuda")
 elif torch.backends.mps.is_available():
@@ -34,13 +34,13 @@ d_e = hyperparameters['d_e']
 max_length_txt = hyperparameters['max_length_txt']
 
 # import model
-checkpoint_path = 'checkpoint.pth'
-checkpoint = torch.load(checkpoint_path, map_location=device)
-state_dict = checkpoint['model_state_dict']
+checkpoint_path = 'checkpoint.pth'                              # trained weights file
+checkpoint = torch.load(checkpoint_path, map_location=device)   
+state_dict = checkpoint['model_state_dict']                    
 
 model = Model().to(device)
 
-model.load_state_dict(state_dict) # load the weights into your model
+model.load_state_dict(state_dict) # load the trained weights into your model
 
 model.eval()
 
@@ -49,10 +49,11 @@ res = []
 correct_predictions = 0
 total_samples = 0
 
+# inference
 for i, batch in enumerate(test_loader):
     if i == 1: break # limiting to 1 batch for demonstration
 
-    I_batch, T_batch = batch
+    I_batch, T_batch, _, _ = batch
 
     I_batch = {k: v.to(device) for k, v in I_batch.items()}
     T_batch = {k: v.to(device) for k, v in T_batch.items()}
@@ -64,7 +65,7 @@ for i, batch in enumerate(test_loader):
         logits_ti = logits.T
         top_probs, topk_indices = logits_ti.topk(top_k, dim=1) # shape: [B, top_k]
 
-        # check if the correct index is ANYWHERE in the top 5
+        # check if the correct index is anywhere in the top 5
         correct_in_topk = topk_indices.eq(labels.view(-1, 1)).any(dim=1)
         correct_predictions += correct_in_topk.sum().item()
         total_samples += labels.size(0)
@@ -82,44 +83,45 @@ accuracy = (correct_predictions / total_samples) * 100
 
 print(f'Top-{top_k} Accuracy: {accuracy:.2f}%')
 
-# visualize output 
+# visualize predictions 
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
-def visualize_comparison(res_list, num_rows=5):
-    _, axes = plt.subplots(num_rows, 6, figsize=(22, num_rows * 4))
-    
+def prepare_img(tensor): # the images are standardized and normalized for more efficinet computation and geometrical needs so we need to do some manipulation
     mean = np.array([0.485, 0.456, 0.406])
     std = np.array([0.229, 0.224, 0.225])
 
-    def prepare_img(tensor):
-        img = tensor.detach().cpu().permute(1, 2, 0).numpy()
-        img = std * img + mean
-        return np.clip(img, 0, 1)
+    img = tensor.detach().cpu().permute(1, 2, 0).numpy()
+    img = std * img + mean
+        
+    return np.clip(img, 0, 1)
 
-    for r in range(num_rows):
-        item = res_list[r]
+def visualize(res, num_rows=5):
+    _, axes = plt.subplots(num_rows, 6, figsize=(22, num_rows * 4))
+
+    for i in range(num_rows):
+        item = res[i]
         query_text = tokenizer.decode(item['text'], skip_special_tokens=True)
 
         wrapped_text = "\n".join(textwrap.wrap(query_text, width=25))
 
-        ax_truth = axes[r, 0]
+        ax_truth = axes[i, 0]
         ax_truth.imshow(prepare_img(item['truth_image']))
         ax_truth.set_title("GROUND TRUTH", color='green', fontweight='bold')
         ax_truth.set_ylabel(wrapped_text, rotation=0, labelpad=80, fontsize=10, va='center')
         ax_truth.set_xticks([])
         ax_truth.set_yticks([])
 
-        for c in range(1, 6):
-            img_idx = c - 1
-            ax_pred = axes[r, c]
+        for j in range(1, 6):
+            img_idx = j - 1
+            ax_pred = axes[i, j]
             ax_pred.imshow(prepare_img(item['top_images'][img_idx]))
             
             score = item['scores'][img_idx]
-            ax_pred.set_title(f"Rank {c}\n(Score: {score:.3f})", fontsize=9)
+            ax_pred.set_title(f"Rank {j}\n(Score: {score:.3f})", fontsize=9)
             ax_pred.axis('off')
 
     plt.tight_layout()
     plt.show()
 
-visualize_comparison(res, num_rows=5)
+visualize(res, num_rows=5)
 
