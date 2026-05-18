@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 import torch.nn as nn
 import torch
-
+import math
 from transformers import ViTModel, BertModel
 from hyperparameters import hyperparameters
 
@@ -28,9 +28,12 @@ class Model(nn.Module):
         self.W_t = nn.Parameter(torch.empty(d_t, d_e)) 
         self.t = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))
         
-        # he initialization (kaiming) parameters -> sample weights from a uniform distribution ~ Unif(-sqrt(6/ fan_in), sqrt(6 / fan_in))
-        torch.nn.init.kaiming_uniform_(self.W_i)
-        torch.nn.init.kaiming_uniform_(self.W_t)
+        # truncated normal initialization parameters (taken from OpenAI paper CLIP) -> sample weights from a normal distribution ~ Normal(mean=0, sd=1 / sqrt(d_in))
+        std_wi = 1 / math.sqrt(d_i)
+        std_wt = 1 / math.sqrt(d_t)
+
+        torch.nn.init.trunc_normal_(self.W_i, std=std_wi, a=-2*std_wi, b=2*std_wi) # bounded between a and b
+        torch.nn.init.trunc_normal_(self.W_t, std=std_wt, a=-2*std_wt, b=2*std_wt)
 
     def forward(self, I_batch, T_batch):
         # I_batch shape: [B, C, H, W]

@@ -1,2 +1,39 @@
 - try differnet weight init
 - pre trained models, LIT not sense like that and why choose this?
+
+Crucial Implementation Details for This Setup
+Because your backbones are frozen, your custom projections (W 
+i
+​	
+  and W 
+t
+​	
+ ) are doing all the heavy lifting. To make sure your initialization works, your forward pass must include these two steps:
+
+1. L 
+2
+​	
+  Normalization
+
+You must normalize the outputs of W 
+i
+​	
+  and W 
+t
+​	
+  along the embedding dimension before taking the dot product. Without this, the magnitude of the vectors will dominate the similarity score, completely breaking the contrastive geometric space.
+
+2. The Temperature Parameter (Logit Scale)
+
+As mentioned before, if you take the dot product of two L 
+2
+​	
+  normalized vectors, the value ranges only between -1 and 1. The gradients passing back into W 
+i
+​	
+  and W 
+t
+​	
+  will be incredibly small, and the model will learn very slowly or get stuck.
+
+You need a learnable scale parameter initialized to ln(1/0.07)≈2.6592.
