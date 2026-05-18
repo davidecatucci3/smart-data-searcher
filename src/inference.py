@@ -43,10 +43,10 @@ if __name__ == '__main__':
 
     model.load_state_dict(state_dict) # load the trained weights into your model
 
-    model.eval()
+    model.eval() # evaluation / inference mode
 
-    top_k = 3
-    res = []
+    top_k = 3 # top highest probabilities images selected corresponding to the text prompt
+    res = []  # for each sample {'text': prompt 'truth_image': image, 'top_images': list of top k images, 'scores': probabilities for each top k images find}
     correct_predictions = 0
     total_samples = 0
 
@@ -59,13 +59,15 @@ if __name__ == '__main__':
         T_batch = {k: v.to(device) for k, v in T_batch.items()}
 
         with torch.no_grad():
+            # output model
             logits = model(I_batch, T_batch) 
-            labels = torch.arange(logits.size(0), device=device)
 
+            # top k images find
             logits_ti = logits.T
             top_probs, topk_indices = logits_ti.topk(top_k, dim=1) # shape: [B, top_k]
 
             # check if the correct index is anywhere in the top 5
+            labels = torch.arange(logits.size(0), device=device)
             correct_in_topk = topk_indices.eq(labels.view(-1, 1)).any(dim=1)
             correct_predictions += correct_in_topk.sum().item()
             total_samples += labels.size(0)
@@ -102,7 +104,7 @@ if __name__ == '__main__':
             item = res[i]
             query_text = tokenizer.decode(item['text'], skip_special_tokens=True)
 
-            wrapped_text = "\n".join(textwrap.wrap(query_text, width=25))
+            wrapped_text = '\n'.join(textwrap.wrap(query_text, width=25))
 
             ax_truth = axes[i, 0]
             ax_truth.imshow(prepare_img(item['truth_image']))
@@ -116,7 +118,7 @@ if __name__ == '__main__':
                 ax_pred.imshow(prepare_img(item['top_images'][j]))
                 
                 score = item['scores'][j]
-                ax_pred.set_title(f"Rank {j}\n(Score: {score:.3f})", fontsize=9)
+                ax_pred.set_title(f'Rank {j} \n (Score: {score:.3f})', fontsize=9)
                 ax_pred.axis('off')
 
         plt.tight_layout()
