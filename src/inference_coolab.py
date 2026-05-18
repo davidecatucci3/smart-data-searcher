@@ -1,5 +1,4 @@
 from google.colab import drive
-
 drive.mount('/content/drive')
 
 import os
@@ -8,9 +7,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-# Ensures matplotlib plots render cleanly directly inside the Colab notebook
-# %matplotlib inline
 
 # prevents memory fragmentation
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -44,7 +40,7 @@ dataset = load_dataset("bitmind/MS-COCO", streaming=True) # we don't download da
 # import pre-trained models
 vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k") # image encoder
 bert_tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")        # text encoder
- 
+
 def collate_fn(batch):
     images = [] # list of images in PIL objects form
 
@@ -67,18 +63,18 @@ def collate_fn(batch):
         images.append(img.convert("RGB"))
 
     # list of texts not tokens
-    texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch] 
+    texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch]
 
-    # process images so return a list of images in tensor / array form -> {"pixel_values": tensor([B, 3, 224, 224])}        
+    # process images so return a list of images in tensor / array form -> {"pixel_values": tensor([B, 3, 224, 224])}
     img_inputs = vit_processor(images=images, return_tensors="pt")
 
-    # process text so return list texts converted in tokens -> {"input_ids": ..., "attention_mask": ..., ...}     
+    # process text so return list texts converted in tokens -> {"input_ids": ..., "attention_mask": ..., ...}
     txt_inputs = bert_tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length_txt)
 
     return img_inputs, txt_inputs, images, texts
 
 train_data = dataset['train'].shuffle(seed=42, buffer_size=10000) # shuffle to prevent model to learn sequence of data (put in memory only 10.000 and sample randomly from there, when one batch is taken out another is take in)
-test_data = dataset['test'].shuffle(seed=42, buffer_size=10000).filter(lambda _, i: i % 5 == 0, with_indices=True) # in test data each 5 sample the image is the same and change only the text, so now i am taking only 1 image each 5 for testing 
+test_data = dataset['test'].shuffle(seed=42, buffer_size=10000).filter(lambda _, i: i % 5 == 0, with_indices=True) # in test data each 5 sample the image is the same and change only the text, so now i am taking only 1 image each 5 for testing
 
 train_loader = DataLoader(train_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
 test_loader = DataLoader(test_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
@@ -95,12 +91,12 @@ class Model(nn.Module):
         # save memory by not storing all gradients but this is slower due to recalculation after (USE ONLY IF YOU DON'T HAVE ENOUGH MEMORY)
         #self.img_encoder.gradient_checkpointing_enable()
         #self.txt_encoder.gradient_checkpointing_enable()
-        
+
         # parameters
-        self.W_i = nn.Parameter(torch.empty(d_i, d_e)) 
-        self.W_t = nn.Parameter(torch.empty(d_t, d_e)) 
+        self.W_i = nn.Parameter(torch.empty(d_i, d_e))
+        self.W_t = nn.Parameter(torch.empty(d_t, d_e))
         self.t = nn.Parameter(torch.log(torch.tensor(1 / 0.07)))
-        
+
         # truncated normal initialization parameters (taken from OpenAI paper CLIP) -> sample weights from a normal distribution ~ Normal(mean=0, sd=1 / sqrt(d_in))
         std_wi = 1 / math.sqrt(d_i)
         std_wt = 1 / math.sqrt(d_t)
@@ -131,7 +127,7 @@ class Model(nn.Module):
 try:
     torch.set_float32_matmul_precision('high')
 except:
-    pass 
+    pass
 
 # Set device for Google Colab (Typically CUDA GPU or CPU)
 if torch.cuda.is_available():
@@ -143,7 +139,7 @@ else:
 
 
 # import model
-checkpoint_path = 'checkpoint.pth'
+checkpoint_path = '/content/drive/MyDrive/checkpoint.pth'
 if not os.path.exists(checkpoint_path):
     raise FileNotFoundError(f"Missing '{checkpoint_path}'. Please upload your weights file to Colab.")
 
@@ -169,7 +165,7 @@ for i, batch in enumerate(test_loader):
     T_batch = {k: v.to(device) for k, v in T_batch.items()}
 
     with torch.no_grad():
-        logits = model(I_batch, T_batch) 
+        logits = model(I_batch, T_batch)
         labels = torch.arange(logits.size(0), device=device)
 
         logits_ti = logits.T
@@ -192,7 +188,7 @@ for i, batch in enumerate(test_loader):
 accuracy = (correct_predictions / total_samples) * 100
 print(f'\nTop-{top_k} Accuracy: {accuracy:.2f}%\n')
 
-# visualize predictions 
+# visualize predictions
 tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 def prepare_img(tensor):
@@ -201,15 +197,15 @@ def prepare_img(tensor):
 
     img = tensor.detach().cpu().permute(1, 2, 0).numpy()
     img = std * img + mean
-        
+
     return np.clip(img, 0, 1)
 
 def visualize(res, num_rows=5):
     # Adjusting num_rows safely if the batch contains fewer samples than requested
     num_rows = min(num_rows, len(res))
-    
-    _, axes = plt.subplots(num_rows, 6, figsize=(22, num_rows * 4))
-    
+
+    fig, axes = plt.subplots(num_rows, 6, figsize=(22, num_rows * 4))
+
     # Handle edge case where num_rows is 1 (axes becomes 1D array instead of 2D)
     if num_rows == 1:
         axes = np.expand_dims(axes, axis=0)
@@ -230,7 +226,7 @@ def visualize(res, num_rows=5):
             img_idx = j - 1
             ax_pred = axes[i, j]
             ax_pred.imshow(prepare_img(item['top_images'][img_idx]))
-            
+
             score = item['scores'][img_idx]
             ax_pred.set_title(f"Rank {j}\n(Score: {score:.3f})", fontsize=9)
             ax_pred.axis('off')

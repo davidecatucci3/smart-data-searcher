@@ -1,8 +1,8 @@
 hyperparameters = {
-    'batch_size': 16,
+    'batch_size': 4,
     'd_i': 768,             # dimension vector text encoder
     'd_t': 768,             # dimension vector image encoder
-    'd_e': 64,              # dimension vector joint embedding
+    'd_e': 512,              # dimension vector joint embedding
     'max_test_batches': 5,  # maximum number of batches to elaborate for testing
     'lr': 1e-4,
     'epochs': 8,

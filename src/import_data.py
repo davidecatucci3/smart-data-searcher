@@ -1,0 +1,59 @@
+import io
+
+from transformers import ViTImageProcessor, BertTokenizer
+from hyperparameters import hyperparameters
+from torch.utils.data import DataLoader
+from datasets import load_dataset
+from PIL import Image
+
+# hyperparameters
+batch_size = hyperparameters['batch_size']
+max_length_txt = hyperparameters['max_length_txt']
+
+# import dataset
+dataset = load_dataset("bitmind/MS-COCO", streaming=True) # we don't download dataset on local but we use streaming to iterate on the dataset on the fly without download dataset
+
+# import pre-trained models
+vit_processor = ViTImageProcessor.from_pretrained("google/vit-base-patch16-224-in21k") # image encoder
+bert_tokenizer = BertTokenizer.from_pretrained("google-bert/bert-base-uncased")        # text encoder
+ 
+def collate_fn(batch):
+    images = [] # list of images in PIL objects form
+
+    for item in batch:
+        img_data = item['image']
+
+        # due to streaming it can return both the PIL object correct or sometimes a dict with inside raw bytes or path of image
+        if isinstance(img_data, dict):
+            if 'bytes' in img_data and img_data['bytes'] is not None: # if dict contains raw bytes
+                img = Image.open(io.BytesIO(img_data['bytes']))
+            elif 'path' in img_data: # if dict contains path
+                img = Image.open(img_data['path'])
+            else: # else
+                # fallback for unexpected dict structures
+                img = Image.new('RGB', (224, 224), color='black')
+        else:
+            img = img_data # it's already a PIL image
+
+        # convert all images to RGB (fixes grayscale/RGBA issues)
+        images.append(img.convert("RGB"))
+
+    # list of texts not tokens
+    texts = [item['sentences']['raw'][0] if isinstance(item['sentences']['raw'], list) else item['sentences']['raw'] for item in batch] 
+
+    # process images so return a list of images in tensor / array form -> {"pixel_values": tensor([B, 3, 224, 224])}        
+    img_inputs = vit_processor(images=images, return_tensors="pt")
+
+    # process text so return list texts converted in tokens -> {"input_ids": ..., "attention_mask": ..., ...}     
+    txt_inputs = bert_tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=max_length_txt)
+
+    return img_inputs, txt_inputs, images, texts
+
+def filter_every_fifth(_, i):
+    return i % 5 == 0
+
+train_data = dataset['train'].shuffle(seed=42, buffer_size=10000) # shuffle to prevent model to learn sequence of data (put in memory only 10.000 and sample randomly from there, when one batch is taken out another is take in)
+test_data = dataset['test'].shuffle(seed=42, buffer_size=10000).filter(filter_every_fifth, with_indices=True) # in test data each 5 sample the image is the same and change only the text, so now i am taking only 1 image each 5 for testing 
+
+train_loader = DataLoader(train_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
+test_loader = DataLoader(test_data, batch_size=batch_size, collate_fn=collate_fn, num_workers=2, pin_memory=True, persistent_workers=True, prefetch_factor=2, shuffle=False)
